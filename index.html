@@ -300,6 +300,7 @@ label{display:block;font-size:.72rem;color:var(--muted);margin-bottom:3px}
   <div class="sfooter">
     <button class="bgo" id="bgo" onclick="launchDashboard()">VER DASHBOARD →</button>
     <p class="shint">Carga al menos un área para continuar</p>
+    <button onclick="openMetaModal()" style="background:rgba(255,214,0,.08);border:1px solid rgba(255,214,0,.2);color:var(--yellow);padding:7px 18px;border-radius:8px;font-size:.78rem;font-weight:600;cursor:pointer;margin-top:4px">⚙️ Configurar Metas</button>
     <p class="dev-credit">software desarrollado por Luis Añamaco Echenique</p>
   </div>
 </div>
@@ -440,6 +441,25 @@ label{display:block;font-size:.72rem;color:var(--muted);margin-bottom:3px}
   </div>
 </div>
 
+<!-- ════════ MODAL METAS ════════ -->
+<div id="meta-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:400;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:18px;width:100%;max-width:780px;margin:auto">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <h2 style="font-size:.95rem;font-weight:700;display:flex;align-items:center;gap:8px">⚙️ Configurar Metas por KPI</h2>
+      <button onclick="closeMetaModal()" style="background:rgba(255,255,255,.07);border:none;color:var(--muted);width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:1rem">✕</button>
+    </div>
+    <div style="padding:18px 22px">
+      <p style="font-size:.75rem;color:var(--muted);margin-bottom:16px">Define los umbrales para cada KPI. <strong style="color:var(--green)">Verde</strong> = cumple meta · <strong style="color:var(--yellow)">Amarillo</strong> = aceptable · <strong style="color:var(--red)">Rojo</strong> = fuera de meta.</p>
+      <div id="meta-fields"></div>
+    </div>
+    <div style="padding:12px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="resetMeta()" style="background:var(--card2);border:1px solid var(--border);color:var(--muted);padding:8px 14px;border-radius:8px;font-size:.83rem;cursor:pointer">↺ Restaurar por defecto</button>
+      <button onclick="closeMetaModal()" style="background:var(--card2);border:1px solid var(--border);color:var(--muted);padding:8px 14px;border-radius:8px;font-size:.83rem;cursor:pointer">Cancelar</button>
+      <button onclick="saveMeta()" style="background:var(--grad-green);border:none;color:#fff;padding:8px 22px;border-radius:8px;font-weight:700;font-size:.83rem;cursor:pointer">💾 Guardar Metas</button>
+    </div>
+  </div>
+</div>
+
 <!-- PDF capture offscreen -->
 <div id="pdf-cap"></div>
 
@@ -533,6 +553,26 @@ const SCHEMA={
 //  STATE
 // ════════════════════════════════════
 let DATA={c:[],a:[],t:[]},CHARTS={},CUR='',EDIT_IDX=null;
+
+// ════════════════════════════════════
+//  METAS CONFIGURABLES (editables por el usuario)
+// ════════════════════════════════════
+const META_DEF={
+  // Compras
+  c_ahorro_bueno:5,  c_ahorro_ok:2,       // % ahorro: bueno / aceptable
+  c_cumpl_bueno:95,  c_cumpl_ok:85,       // % cumplimiento entregas
+  c_ciclo_bueno:15,  c_ciclo_ok:20,       // días ciclo de compra
+  c_urg_bueno:10,    c_urg_ok:25,         // % órdenes urgentes
+  // Almacén
+  a_exact_bueno:98,  a_exact_ok:90,       // % exactitud inventario
+  a_rot_bueno:4,     a_rot_ok:2,          // rotación (veces)
+  a_obs_bueno:2,     a_obs_ok:5,          // % obsolescencia
+  a_req_bueno:97,    a_req_ok:90,         // % requerimientos atendidos
+  // Transporte
+  t_util_bueno:80,   t_util_ok:60,        // % utilización vehículo
+};
+let META={...META_DEF};
+try{const _m=localStorage.getItem('frg_meta');if(_m)META={...META_DEF,...JSON.parse(_m)};}catch(e){}
 
 // ════════════════════════════════════
 //  CALC
@@ -799,21 +839,45 @@ function buildC(){
   if(!DATA.c.length){el.innerHTML='<div class="nodata">Sin datos de Compras</div>';return;}
   const lk=calcC(last(DATA.c)),pk=prev(DATA.c)?calcC(prev(DATA.c)):null;
   document.getElementById('sp-c').textContent=last(DATA.c).mes||'—';
+  // ── Lógica de alertas Compras (umbrales desde META) ──
+  const ahorroNeg = lk.ahorro < 0;
+  const urgAlta   = lk.urg > META.c_urg_ok;
+  const cicloFuera= lk.ciclo > META.c_ciclo_ok;
+
   el.innerHTML=[
-    {lbl:'💰 Ahorro Generado',    val:fmt(lk.ahorro,'%'),st:pS(lk.ahorro,5,2),  tr:trH(lk.ahorro,pk?.ahorro),      form:'(P.Ref−P.Adj)/P.Ref×100'},
-    {lbl:'✅ Cumpl. Entrega',     val:fmt(lk.cumpl,'%'), st:pS(lk.cumpl,95,85), tr:trH(lk.cumpl,pk?.cumpl),         form:'Entregas Tiempo/Total×100'},
-    {lbl:'⏱️ Ciclo de Compra',    val:fmt(lk.ciclo,'días',0),st:ltS(lk.ciclo,15,20),tr:trH(lk.ciclo,pk?.ciclo,false),meta:'Meta: ≤ 15 días'},
-    {lbl:'📋 OC + OS Emitidas',   val:fmt(lk.oc_os,'',0),st:'n',              tr:'',form:'Total órdenes período'},
-    {lbl:'🚨 % Urgentes',         val:fmt(lk.urg,'%'),  st:ltS(lk.urg,10,25), tr:trH(lk.urg,pk?.urg,false),meta:lk.urg<=10?'✓ Buen nivel':lk.urg<=25?'⚠ Moderado':'✗ Alto'},
+    {lbl: ahorroNeg ? '🔴 SOBRE COSTO'              : '💰 Ahorro Generado',
+     val: fmt(Math.abs(lk.ahorro),'%'),
+     st:  ahorroNeg ? 'b' : pS(lk.ahorro, META.c_ahorro_bueno, META.c_ahorro_ok),
+     tr:  trH(lk.ahorro,pk?.ahorro),
+     meta:ahorroNeg ? 'Adjudicado supera precio de referencia' : undefined,
+     form:'(P.Ref−P.Adj)/P.Ref×100'},
+    {lbl:'✅ Cumpl. Entrega', val:fmt(lk.cumpl,'%'),
+     st:pS(lk.cumpl, META.c_cumpl_bueno, META.c_cumpl_ok),
+     tr:trH(lk.cumpl,pk?.cumpl), form:'Entregas Tiempo/Total×100'},
+    {lbl:'⏱️ Ciclo de Compra',
+     val:fmt(lk.ciclo,'días',0),
+     st:ltS(lk.ciclo, META.c_ciclo_bueno, META.c_ciclo_ok),
+     tr:trH(lk.ciclo,pk?.ciclo,false),
+     meta:cicloFuera ? '🚨 FUERA DE META — '+(lk.ciclo-META.c_ciclo_bueno).toFixed(0)+' días sobre límite'
+                     : lk.ciclo>META.c_ciclo_bueno ? '⚠ Sobre meta' : '✓ Dentro de meta'},
+    {lbl:'📋 OC + OS Emitidas', val:fmt(lk.oc_os,'',0), st:'n', tr:'', form:'Total órdenes período'},
+    {lbl: urgAlta ? '🚨 RIESGO OPERATIVO'            : '⚠️ % Urgentes',
+     val: fmt(lk.urg,'%'),
+     st:  ltS(lk.urg, META.c_urg_bueno, META.c_urg_ok),
+     tr:  trH(lk.urg,pk?.urg,false),
+     meta:urgAlta ? 'Alta concentración de compras urgentes'
+                  : lk.urg<=META.c_urg_bueno ? '✓ Nivel controlado' : '⚠ Moderado'},
   ].filter(k=>k.val!=='—').map(kCard).join('');
 
   // Gauges
   const gaugeArea=document.getElementById('c-gauges');
   gaugeArea.innerHTML='<div id="cg1"></div><div id="cg2"></div><div id="cg3"></div>';
   setTimeout(()=>{
-    mkGauge('cg1',lk.ahorro.toFixed(1),20,'Ahorro Generado',scl(pS(lk.ahorro,5,2)),'%');
-    mkGauge('cg2',lk.cumpl.toFixed(1),100,'Cumplimiento Entrega',scl(pS(lk.cumpl,95,85)),'%');
-    mkGauge('cg3',lk.urg.toFixed(1),100,'% Urgentes',scl(ltS(lk.urg,10,25)),'%');
+    mkGauge('cg1',Math.abs(lk.ahorro).toFixed(1), META.c_ahorro_bueno*2||20,
+            ahorroNeg?'SOBRE COSTO':'Ahorro Generado',
+            ahorroNeg?'#ff1744':scl(pS(lk.ahorro,META.c_ahorro_bueno,META.c_ahorro_ok)),'%');
+    mkGauge('cg2',lk.cumpl.toFixed(1),100,'Cumplimiento Entrega',scl(pS(lk.cumpl,META.c_cumpl_bueno,META.c_cumpl_ok)),'%');
+    mkGauge('cg3',lk.urg.toFixed(1),100,urgAlta?'RIESGO OPERATIVO':'% Urgentes',scl(ltS(lk.urg,META.c_urg_bueno,META.c_urg_ok)),'%');
   },50);
 
   const L=DATA.c.map(r=>r.mes||''),all=DATA.c.map(calcC);
@@ -833,20 +897,50 @@ function buildA(){
   if(!DATA.a.length){el.innerHTML='<div class="nodata">Sin datos de Almacén</div>';return;}
   const lk=calcA(last(DATA.a)),pk=prev(DATA.a)?calcA(prev(DATA.a)):null;
   document.getElementById('sp-a').textContent=last(DATA.a).mes||'—';
+  // ── Lógica de alertas Almacén (umbrales desde META) ──
+  const invCrit  = lk.exact < META.a_exact_ok;
+  const stockDet = lk.rot < 1;
+  const mermaAlta= lk.obs > META.a_obs_ok;
+  const deficit  = lk.req < META.a_req_ok;
+  const rotSt    = lk.rot>=META.a_rot_bueno?'g':lk.rot>=META.a_rot_ok?'w':'b';
+
   el.innerHTML=[
-    {lbl:'✅ Exactitud Inventario',val:fmt(lk.exact,'%'),st:pS(lk.exact,98,90),tr:trH(lk.exact,pk?.exact),meta:'Meta ≥ 98%',form:'Cant.Correcta/Verificada×100'},
-    {lbl:'🔄 Rotación Inventario', val:fmt(lk.rot,'x'),  st:lk.rot>=4?'g':lk.rot>=2?'w':'b',tr:trH(lk.rot,pk?.rot),form:'Consumo/Inv.Promedio'},
-    {lbl:'⚠️ Obsolescencia',       val:fmt(lk.obs,'%'),  st:ltS(lk.obs,2,5),tr:trH(lk.obs,pk?.obs,false),form:'Val.Obs/Val.Total×100'},
-    {lbl:'📦 Req. Atendidos',      val:fmt(lk.req,'%'),  st:pS(lk.req,97,90),tr:trH(lk.req,pk?.req),form:'Atendidos/Recibidos×100'},
+    {lbl: invCrit ? '🚨 INVENTARIO CRÍTICO'          : '✅ Exactitud Inventario',
+     val: fmt(lk.exact,'%'),
+     st:  pS(lk.exact, META.a_exact_bueno, META.a_exact_ok),
+     tr:  trH(lk.exact,pk?.exact),
+     meta:invCrit ? 'Exactitud crítica — verificar conteo urgente'
+                  : lk.exact<META.a_exact_bueno ? '⚠ Bajo meta' : '✓ Meta cumplida',
+     form:'Cant.Correcta/Verificada×100'},
+    {lbl: stockDet ? '⚠️ STOCK DETENIDO'              : '🔄 Rotación Inventario',
+     val: fmt(lk.rot,'x'),
+     st:  rotSt,
+     tr:  trH(lk.rot,pk?.rot),
+     meta:stockDet ? 'Inventario sin movimiento en el período'
+                   : lk.rot<META.a_rot_ok ? '⚠ Rotación baja' : undefined,
+     form:'Consumo/Inv.Promedio'},
+    {lbl: mermaAlta ? '🚨 RIESGO DE MERMA'            : '⚠️ Obsolescencia',
+     val: fmt(lk.obs,'%'),
+     st:  ltS(lk.obs, META.a_obs_bueno, META.a_obs_ok),
+     tr:  trH(lk.obs,pk?.obs,false),
+     meta:mermaAlta ? 'Stock crítico — posibles pérdidas económicas'
+                    : lk.obs>META.a_obs_bueno ? '⚠ Sobre umbral' : undefined,
+     form:'Val.Obs/Val.Total×100'},
+    {lbl: deficit ? '🔴 DÉFICIT DE ATENCIÓN'          : '📦 Req. Atendidos',
+     val: fmt(lk.req,'%'),
+     st:  pS(lk.req, META.a_req_bueno, META.a_req_ok),
+     tr:  trH(lk.req,pk?.req),
+     meta:deficit ? 'Atención de requerimientos por debajo del umbral' : undefined,
+     form:'Atendidos/Recibidos×100'},
   ].map(kCard).join('');
 
   const gaugeArea=document.getElementById('a-gauges');
   gaugeArea.innerHTML='<div id="ag1"></div><div id="ag2"></div><div id="ag3"></div><div id="ag4"></div>';
   setTimeout(()=>{
-    mkGauge('ag1',lk.exact.toFixed(1),100,'Exactitud Inventario',scl(pS(lk.exact,98,90)),'%');
-    mkGauge('ag2',lk.rot.toFixed(2),10,'Rotación',scl(lk.rot>=4?'g':lk.rot>=2?'w':'b'),'x');
-    mkGauge('ag3',lk.obs.toFixed(1),20,'Obsolescencia',scl(ltS(lk.obs,2,5)),'%');
-    mkGauge('ag4',lk.req.toFixed(1),100,'Req. Atendidos',scl(pS(lk.req,97,90)),'%');
+    mkGauge('ag1',lk.exact.toFixed(1),100,invCrit?'INVENTARIO CRÍTICO':'Exactitud Inventario',invCrit?'#ff1744':scl(pS(lk.exact,META.a_exact_bueno,META.a_exact_ok)),'%');
+    mkGauge('ag2',lk.rot.toFixed(2),META.a_rot_bueno*2||10,stockDet?'STOCK DETENIDO':'Rotación',scl(rotSt),'x');
+    mkGauge('ag3',lk.obs.toFixed(1),META.a_obs_ok*3||20,mermaAlta?'RIESGO DE MERMA':'Obsolescencia',mermaAlta?'#ff1744':scl(ltS(lk.obs,META.a_obs_bueno,META.a_obs_ok)),'%');
+    mkGauge('ag4',lk.req.toFixed(1),100,deficit?'DÉFICIT ATENCIÓN':'Req. Atendidos',deficit?'#ff1744':scl(pS(lk.req,META.a_req_bueno,META.a_req_ok)),'%');
   },50);
 
   const L=DATA.a.map(rw=>rw.mes||''),all=DATA.a.map(calcA);
@@ -862,11 +956,20 @@ function buildT(){
   if(!DATA.t.length){el.innerHTML='<div class="nodata">Sin datos de Transporte</div>';return;}
   const lk=calcT(last(DATA.t)),pk=prev(DATA.t)?calcT(prev(DATA.t)):null;
   document.getElementById('sp-t').textContent=last(DATA.t).mes||'—';
+  // ── Lógica de alertas Transporte (umbrales desde META) ──
+  const sobrecarga = lk.util > 100;
+  const utilSt     = sobrecarga ? 'b' : pS(lk.util, META.t_util_bueno, META.t_util_ok);
+
   el.innerHTML=[
-    {lbl:'💲 Costo por Unidad',    val:fmt(lk.cund,'S/'),  st:'n',             tr:trH(lk.cund,pk?.cund,false),form:'Costo Total/Unidades'},
-    {lbl:'🚚 Utilización Vehículo',val:fmt(lk.util,'%'),   st:pS(lk.util,80,60),tr:trH(lk.util,pk?.util),  form:'Carga/Capacidad×100'},
-    {lbl:'⛽ Total Combustible',    val:fmt(lk.comb,'S/'),  st:'n',             tr:trH(lk.comb,pk?.comb,false),form:'Diesel+Gas90+Gas95'},
-    {lbl:'🗺️ Costo / KM',           val:fmt(lk.ckm,'S/'),   st:'n',             tr:trH(lk.ckm,pk?.ckm,false), form:'Comb.Total/KM Rec.'},
+    {lbl:'💲 Costo por Unidad', val:fmt(lk.cund,'S/'), st:'n', tr:trH(lk.cund,pk?.cund,false), form:'Costo Total/Unidades'},
+    {lbl: sobrecarga ? '🚨 SOBRECARGA VEHÍCULO'       : '🚚 Utilización Vehículo',
+     val: fmt(lk.util,'%'),
+     st:  utilSt,
+     tr:  trH(lk.util,pk?.util),
+     meta:sobrecarga ? 'Exceso de carga: '+(lk.util-100).toFixed(1)+'% sobre capacidad máxima' : lk.util>=META.t_util_bueno ? '✓ Buena utilización' : lk.util>=META.t_util_ok ? '⚠ Utilización baja' : '⚠ Utilización insuficiente',
+     form:'Carga/Capacidad×100'},
+    {lbl:'⛽ Total Combustible', val:fmt(lk.comb,'S/'), st:'n', tr:trH(lk.comb,pk?.comb,false), form:'Diesel+Gas90+Gas95'},
+    {lbl:'🗺️ Costo / KM',        val:fmt(lk.ckm,'S/'),  st:'n', tr:trH(lk.ckm,pk?.ckm,false),  form:'Comb.Total/KM Rec.'},
   ].filter(k=>k.val!=='—').map(kCard).join('');
 
   // Combustible cards
@@ -878,7 +981,7 @@ function buildT(){
   const gaugeArea=document.getElementById('t-gauges');
   gaugeArea.innerHTML='<div id="tg1"></div><div id="tg2"></div>';
   setTimeout(()=>{
-    mkGauge('tg1',lk.util.toFixed(1),100,'Utilización Vehículo',scl(pS(lk.util,80,60)),'%');
+    mkGauge('tg1',Math.min(lk.util,100).toFixed(1),100,sobrecarga?'SOBRECARGA VEHÍCULO':'Utilización Vehículo',sobrecarga?'#ff1744':scl(pS(lk.util,META.t_util_bueno,META.t_util_ok)),'%');
     mkGauge('tg2',lk.ckm.toFixed(2),lk.ckm*1.5||5,'Costo por KM','#ff6d00','S/');
   },50);
 
@@ -1100,6 +1203,67 @@ function showLoad(s,msg){
   if(msg)document.getElementById('load-msg').textContent=msg;
 }
 document.getElementById('moverlay').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal();});
+
+// ════════════════════════════════════
+//  CONFIGURACIÓN DE METAS
+// ════════════════════════════════════
+const META_GROUPS=[
+  {area:'🛒 Compras',fields:[
+    {k:'c_ahorro_bueno', lbl:'Ahorro — Meta óptima (%)',      hint:'Ej: 5'},
+    {k:'c_ahorro_ok',    lbl:'Ahorro — Mínimo aceptable (%)', hint:'Ej: 2'},
+    {k:'c_cumpl_bueno',  lbl:'Cumplimiento entrega — Óptimo (%)',    hint:'Ej: 95'},
+    {k:'c_cumpl_ok',     lbl:'Cumplimiento entrega — Mínimo (%)',    hint:'Ej: 85'},
+    {k:'c_ciclo_bueno',  lbl:'Ciclo de compra — Meta óptima (días)', hint:'Ej: 15'},
+    {k:'c_ciclo_ok',     lbl:'Ciclo de compra — Máximo aceptable (días)', hint:'Ej: 20'},
+    {k:'c_urg_bueno',    lbl:'% Urgentes — Meta óptima (%)',         hint:'Ej: 10'},
+    {k:'c_urg_ok',       lbl:'% Urgentes — Máximo aceptable (%)',    hint:'Ej: 25'},
+  ]},
+  {area:'🏭 Almacén',fields:[
+    {k:'a_exact_bueno',  lbl:'Exactitud inventario — Meta óptima (%)',   hint:'Ej: 98'},
+    {k:'a_exact_ok',     lbl:'Exactitud inventario — Mínimo aceptable (%)', hint:'Ej: 90'},
+    {k:'a_rot_bueno',    lbl:'Rotación inventario — Meta óptima (veces)', hint:'Ej: 4'},
+    {k:'a_rot_ok',       lbl:'Rotación inventario — Mínimo aceptable',  hint:'Ej: 2'},
+    {k:'a_obs_bueno',    lbl:'Obsolescencia — Meta óptima (%)',          hint:'Ej: 2'},
+    {k:'a_obs_ok',       lbl:'Obsolescencia — Máximo aceptable (%)',     hint:'Ej: 5'},
+    {k:'a_req_bueno',    lbl:'Req. atendidos — Meta óptima (%)',         hint:'Ej: 97'},
+    {k:'a_req_ok',       lbl:'Req. atendidos — Mínimo aceptable (%)',    hint:'Ej: 90'},
+  ]},
+  {area:'🚛 Transporte',fields:[
+    {k:'t_util_bueno',   lbl:'Utilización vehículo — Meta óptima (%)',   hint:'Ej: 80'},
+    {k:'t_util_ok',      lbl:'Utilización vehículo — Mínimo aceptable (%)', hint:'Ej: 60'},
+  ]},
+];
+
+function openMetaModal(){
+  const wrap=document.getElementById('meta-fields');
+  wrap.innerHTML=META_GROUPS.map(g=>`
+    <div style="margin-bottom:16px">
+      <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px;padding-bottom:5px;border-bottom:1px solid var(--border)">${g.area}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:9px">
+        ${g.fields.map(f=>`<div>
+          <label style="display:block;font-size:.72rem;color:var(--muted);margin-bottom:3px">${f.lbl}</label>
+          <input id="mi_${f.k}" class="fi" type="number" step="any" value="${META[f.k]??''}" placeholder="${f.hint}">
+        </div>`).join('')}
+      </div>
+    </div>`).join('');
+  document.getElementById('meta-overlay').style.display='flex';
+}
+function closeMetaModal(){document.getElementById('meta-overlay').style.display='none';}
+function saveMeta(){
+  META_GROUPS.forEach(g=>g.fields.forEach(f=>{
+    const el=document.getElementById('mi_'+f.k);
+    if(el&&el.value!=='') META[f.k]=parseFloat(el.value)||META_DEF[f.k];
+  }));
+  try{localStorage.setItem('frg_meta',JSON.stringify(META));}catch(e){}
+  closeMetaModal();
+  alert('✅ Metas guardadas. Se aplicarán al generar el siguiente dashboard.');
+}
+function resetMeta(){
+  if(!confirm('¿Restaurar todos los valores por defecto?'))return;
+  META={...META_DEF};
+  try{localStorage.removeItem('frg_meta');}catch(e){}
+  openMetaModal();
+}
 
 // ── PWA Service Worker registration ──
 if('serviceWorker' in navigator){
