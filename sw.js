@@ -3,7 +3,7 @@
 //  Cachea todo en la primera visita → funciona offline desde la segunda
 // ════════════════════════════════════════════
 
-const CACHE   = 'frg-kpi-v1';
+const CACHE   = 'frg-kpi-v3';
 const ASSETS  = [
   './',
   './index.html',
